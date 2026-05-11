@@ -20,8 +20,10 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
+import io.ktor.server.sse.Heartbeat
 import io.ktor.server.sse.SSE
 import io.ktor.server.sse.ServerSSESession
+import io.ktor.server.sse.heartbeat
 import io.ktor.server.sse.sse
 import io.ktor.utils.io.KtorDsl
 import io.modelcontextprotocol.kotlin.sdk.types.RPCError
@@ -162,6 +164,7 @@ private fun Application.mcpStreamableHttp(
     allowedHosts: List<String>?,
     allowedOrigins: List<String>?,
     configuration: StreamableHttpServerTransport.Configuration,
+    sseHeartbeatConfig: (Heartbeat.() -> Unit)?,
     block: RoutingContext.() -> Server,
 ) {
     installMcpContentNegotiation()
@@ -185,6 +188,7 @@ private fun Application.mcpStreamableHttp(
 
             sse {
                 val transport = existingStreamableTransport(call, transportManager) ?: return@sse
+                sseHeartbeatConfig?.let { config -> heartbeat(config) }
                 transport.handleRequest(this, call)
             }
 
@@ -248,6 +252,56 @@ public fun Application.mcpStreamableHttp(
             eventStore = eventStore,
             enableJsonResponse = true,
         ),
+        sseHeartbeatConfig = null,
+        block = block,
+    )
+}
+
+/**
+ * Configures the Ktor Application to handle Model Context Protocol (MCP)
+ * over [Streamable HTTP Transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http)
+ *
+ * Sets up SSE, HTTP POST, and DELETE endpoints at the specified [path].
+ * Simple request/response pairs are returned as JSON (not SSE streams).
+ *
+ * Automatically installs [ContentNegotiation][io.ktor.server.plugins.contentnegotiation.ContentNegotiation]
+ * with [McpJson][io.modelcontextprotocol.kotlin.sdk.types.McpJson] and [SSE].
+ *
+ * @param path The base path for the MCP Streamable HTTP endpoint. Defaults to "/mcp".
+ * @param enableDnsRebindingProtection Enables DNS rebinding attack protection for the endpoint. Defaults to `true`.
+ * @param allowedHosts A list of hostnames allowed to access the endpoint.
+ *          If `null` and DNS rebinding protection is enabled, defaults to `localhost`, `127.0.0.1`, `[::1]`.
+ * @param allowedOrigins A list of allowed `Origin` header values, compared by hostname only
+ *          (scheme and port are ignored). Requests without an `Origin` header are allowed.
+ *          When `null` while the localhost host defaults are in effect (no custom `allowedHosts`),
+ *          the `Origin` header is validated against `localhost`, `127.0.0.1`, `[::1]`.
+ *          With custom `allowedHosts`, `null` skips origin validation.
+ * @param eventStore An optional [EventStore] instance to enable resumable event stream functionality.
+ *          Allows storing and replaying events.
+ * @param sseHeartbeatConfig The heartbeat configuration option for SSE connections. `null` means no heartbeat is sent.
+ * @param block factory block with access to the [RoutingContext] (for reading request headers)
+ *          that creates and returns the [Server] to handle the connection.
+ */
+@KtorDsl
+public fun Application.mcpStreamableHttp(
+    path: String = "/mcp",
+    enableDnsRebindingProtection: Boolean = true,
+    allowedHosts: List<String>? = null,
+    allowedOrigins: List<String>? = null,
+    eventStore: EventStore? = null,
+    sseHeartbeatConfig: (Heartbeat.() -> Unit)?,
+    block: RoutingContext.() -> Server,
+) {
+    mcpStreamableHttp(
+        path = path,
+        enableDnsRebindingProtection = enableDnsRebindingProtection,
+        allowedHosts = allowedHosts,
+        allowedOrigins = allowedOrigins,
+        configuration = StreamableHttpServerTransport.Configuration(
+            eventStore = eventStore,
+            enableJsonResponse = true,
+        ),
+        sseHeartbeatConfig = sseHeartbeatConfig,
         block = block,
     )
 }
